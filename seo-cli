@@ -1,0 +1,7 @@
+#!/usr/bin/env zsh
+
+cd "$(dirname "$0")" || exit
+
+[ -f .loadenv.sh ] && source .loadenv.sh
+
+exec uv run --frozen --no-sync --no-dev seo-cli "$@"
