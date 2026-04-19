@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 
+import click
+import pytest
 from click.testing import CliRunner
 
 from seo_cli.cli import cli
@@ -118,3 +120,35 @@ def test_missing_site_url_error(monkeypatch) -> None:
     )
     assert result.exit_code != 0
     assert "--site-url is required" in result.output
+
+
+def test_catch_google_errors_wraps_api_call_error() -> None:
+    """GA4 gRPC errors (GoogleAPICallError subtree) must be surfaced as ClickException."""
+    from google.api_core.exceptions import PermissionDenied
+
+    from seo_cli.auth import catch_google_errors
+
+    @catch_google_errors
+    def raises_ga4_error() -> None:
+        raise PermissionDenied("test denial")
+
+    with pytest.raises(click.ClickException) as exc_info:
+        raises_ga4_error()
+    assert "Google API error" in exc_info.value.message
+    assert "test denial" in exc_info.value.message
+
+
+def test_catch_google_errors_wraps_auth_error() -> None:
+    """GoogleAuthError subtree (RefreshError, TransportError, ...) must be surfaced."""
+    from google.auth.exceptions import RefreshError
+
+    from seo_cli.auth import catch_google_errors
+
+    @catch_google_errors
+    def raises_refresh_error() -> None:
+        raise RefreshError("stale token")
+
+    with pytest.raises(click.ClickException) as exc_info:
+        raises_refresh_error()
+    assert "authentication error" in exc_info.value.message.lower()
+    assert "stale token" in exc_info.value.message

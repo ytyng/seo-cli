@@ -19,8 +19,12 @@ from typing import Any, Callable, Literal, TypeVar
 
 import click
 import google.auth
+from google.api_core.exceptions import GoogleAPICallError
 from google.auth.credentials import Credentials
-from google.auth.exceptions import DefaultCredentialsError, RefreshError
+from google.auth.exceptions import (
+    DefaultCredentialsError,
+    GoogleAuthError,
+)
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials as OAuthUserCredentials
 from googleapiclient.errors import HttpError
@@ -119,8 +123,13 @@ def catch_google_errors(func: F) -> F:
     """Decorator that converts common Google auth / API errors into ClickException.
 
     Covers:
-    - RefreshError: stale refresh token; OAuth credentials need re-authentication.
-    - HttpError: REST API error (used by Search Console / Discovery client).
+    - GoogleAuthError subtree (RefreshError, TransportError, OAuthError, ...):
+      credential refresh / OAuth / transport errors.
+    - GoogleAPICallError subtree: gRPC-based API errors raised by
+      `google-analytics-data` / `google-analytics-admin` (PermissionDenied,
+      InvalidArgument, NotFound, ResourceExhausted, ...).
+    - HttpError: REST API errors raised by `googleapiclient` (Search Console
+      Discovery client).
     - PermissionError: filesystem error while loading SSL roots (e.g. sandboxed env).
     """
 
@@ -128,14 +137,21 @@ def catch_google_errors(func: F) -> F:
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return func(*args, **kwargs)
-        except RefreshError as e:
+        except GoogleAuthError as e:
+            # RefreshError is the most common case (stale refresh token).
+            # TransportError / OAuthError also land here.
             raise click.ClickException(
-                "OAuth token refresh failed. The refresh token may be expired; "
-                "re-authenticate with `gcloud auth application-default login` "
-                "or replace the authorized_user JSON in your profile.\n"
+                "Google authentication error. The refresh token may be expired, "
+                "or the network / OAuth server is unreachable. "
+                "Re-authenticate with `gcloud auth application-default login` "
+                "or replace the authorized_user JSON in your profile if this persists.\n"
                 f"Caused by: {e}"
             ) from e
+        except GoogleAPICallError as e:
+            # gRPC-based API errors from GA4 Data / Admin clients.
+            raise click.ClickException(f"Google API error: {e}") from e
         except HttpError as e:
+            # REST-based API errors from GSC Discovery client.
             raise click.ClickException(f"Google API error: {e}") from e
         except PermissionError as e:
             raise click.ClickException(

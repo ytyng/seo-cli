@@ -66,7 +66,10 @@ def sites_list(format_: str) -> None:
     type=click.Choice(
         ["query", "page", "country", "device", "date", "searchAppearance"]
     ),
-    help="Repeatable. Order determines the key order in results.",
+    help=(
+        "Repeatable. Order determines the key order in results. "
+        "NOTE: searchAppearance cannot be combined with other dimensions."
+    ),
 )
 @click.option(
     "--row-limit",
